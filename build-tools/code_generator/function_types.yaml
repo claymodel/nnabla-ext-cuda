@@ -64,9 +64,6 @@ PReLU:
 GELU:
   float: [float]
   half: [Half]
-Mish:
-  float: [float]
-  half: [Half]
 ReLU6:
   float: [float]
   half: [Half]
@@ -441,12 +438,6 @@ Pow2Quantize:
 MinMaxQuantize:
   float: [float]
   half: [Half]
-QuantizeLinear:
-  float: [float]
-  half: [Half]
-DequantizeLinear:
-  float: [float]
-  half: [Half]
 TopNError:
   float: [float, int]
   half: [Half, int]
@@ -532,12 +523,6 @@ MaxPoolingBackward:
   float: [float]
   half: [Half]
 WarpByFlow:
-  float: [float]
-  half: [Half]
-AffineGrid:
-  float: [float]
-  half: [Half]
-WarpByGrid:
   float: [float]
   half: [Half]
 PatchCorrelation:
