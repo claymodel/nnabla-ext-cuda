@@ -26,31 +26,17 @@ inline float compute_scale(int isize, int osize, bool align_corners) {
                                               : float(isize) / osize);
 }
 
-inline float compute_scale_for_nn(int isize, int osize, bool align_corners,
-                                  bool half_pixel_for_nn) {
-  return half_pixel_for_nn ? isize / static_cast<float>(osize)
-                           : compute_scale(isize, osize, align_corners);
-}
-
 __device__ __forceinline__ float get_src_index(float scale, int dst_index,
-                                               bool half_pixel) {
-  return half_pixel ? fmaxf(0.0f, scale * (float(dst_index) + 0.5f) - 0.5f)
-                    : scale * dst_index;
-}
-
-__device__ __forceinline__ float get_src_index_for_nn(float scale,
-                                                      int dst_index,
-                                                      bool half_pixel,
-                                                      bool half_pixel_for_nn) {
-  return half_pixel_for_nn ? scale * (dst_index + 0.5f)
-                           : get_src_index(scale, dst_index, half_pixel);
+                                               bool align_corners) {
+  return align_corners ? scale * dst_index
+                       : fmaxf(0.0f, scale * (float(dst_index) + 0.5f) - 0.5f);
 }
 
 template <typename T, bool channel_last = false>
 __global__ void kernel_linear_interpolate_1d(
     const int dst_inner_size, T *dst, const int src_inner_size, const T *src,
     int outer_size, const int ishape, const int istride, const int ostride,
-    const float sx, const bool half_pixel) {
+    const float sx, const bool align_corners) {
 
   NBLA_CUDA_KERNEL_LOOP(index, dst_inner_size) {
     const auto nd_index = device_flat_to_2d(index, ostride);
@@ -59,7 +45,7 @@ __global__ void kernel_linear_interpolate_1d(
 
     const auto iw = ishape;
 
-    const auto fx = get_src_index(sx, ox, half_pixel);
+    const auto fx = get_src_index(sx, ox, align_corners);
     const auto x1 = static_cast<int>(fx);
     const auto x2 = min(x1 + 1, iw - 1);
     const auto lx1 = static_cast<T>(fx - x1);
@@ -83,7 +69,7 @@ template <typename T, bool channel_last = false>
 __global__ void kernel_linear_interpolate_2d(
     const int dst_inner_size, T *dst, const int src_inner_size, const T *src,
     int outer_size, const int2 ishape, const int2 istride, const int2 ostride,
-    const float sx, const float sy, const bool half_pixel) {
+    const float sx, const float sy, const bool align_corners) {
 
   NBLA_CUDA_KERNEL_LOOP(index, dst_inner_size) {
     const auto nd_index = device_flat_to_3d(index, ostride);
@@ -94,13 +80,13 @@ __global__ void kernel_linear_interpolate_2d(
     const auto ih = ishape.x;
     const auto iw = ishape.y;
 
-    const auto fy = get_src_index(sy, oy, half_pixel);
+    const auto fy = get_src_index(sy, oy, align_corners);
     const auto y1 = static_cast<int>(fy);
     const auto y2 = min(y1 + 1, ih - 1);
     const auto ly1 = static_cast<T>(fy - y1);
     const auto ly0 = static_cast<T>(1) - ly1;
 
-    const auto fx = get_src_index(sx, ox, half_pixel);
+    const auto fx = get_src_index(sx, ox, align_corners);
     const auto x1 = static_cast<int>(fx);
     const auto x2 = min(x1 + 1, iw - 1);
     const auto lx1 = static_cast<T>(fx - x1);
@@ -130,7 +116,7 @@ template <typename T, bool channel_last = false>
 __global__ void kernel_linear_interpolate_3d(
     const int dst_inner_size, T *dst, const int src_inner_size, const T *src,
     int outer_size, const int3 ishape, const int3 istride, const int3 ostride,
-    const float sx, const float sy, const float sz, const bool half_pixel) {
+    const float sx, const float sy, const float sz, const bool align_corners) {
 
   NBLA_CUDA_KERNEL_LOOP(index, dst_inner_size) {
     const auto nd_index = device_flat_to_4d(index, ostride);
@@ -143,19 +129,19 @@ __global__ void kernel_linear_interpolate_3d(
     const auto ih = ishape.y;
     const auto iw = ishape.z;
 
-    const auto fz = get_src_index(sz, oz, half_pixel);
+    const auto fz = get_src_index(sz, oz, align_corners);
     const auto z1 = static_cast<int>(fz);
     const auto z2 = min(z1 + 1, id - 1);
     const auto lz1 = static_cast<T>(fz - z1);
     const auto lz0 = static_cast<T>(1) - lz1;
 
-    const auto fy = get_src_index(sy, oy, half_pixel);
+    const auto fy = get_src_index(sy, oy, align_corners);
     const auto y1 = static_cast<int>(fy);
     const auto y2 = min(y1 + 1, ih - 1);
     const auto ly1 = static_cast<T>(fy - y1);
     const auto ly0 = static_cast<T>(1) - ly1;
 
-    const auto fx = get_src_index(sx, ox, half_pixel);
+    const auto fx = get_src_index(sx, ox, align_corners);
     const auto x1 = static_cast<int>(fx);
     const auto x2 = min(x1 + 1, iw - 1);
     const auto lx1 = static_cast<T>(fx - x1);
@@ -199,7 +185,7 @@ template <typename T, bool channel_last = false>
 __global__ void kernel_linear_interpolate_1d_backward(
     const int g_y_inner_size, const T *g_y, const int g_x_inner_size, T *g_x,
     int outer_size, const int ishape, const int istride, const int ostride,
-    const float sx, const bool half_pixel) {
+    const float sx, const bool align_corners) {
 
   NBLA_CUDA_KERNEL_LOOP(index, g_y_inner_size) {
     const auto nd_index = device_flat_to_2d(index, ostride);
@@ -208,7 +194,7 @@ __global__ void kernel_linear_interpolate_1d_backward(
 
     const auto iw = ishape;
 
-    const auto fx = get_src_index(sx, ox, half_pixel);
+    const auto fx = get_src_index(sx, ox, align_corners);
     const auto x1 = static_cast<int>(fx);
     const auto x2 = min(x1 + 1, iw - 1);
     const auto lx1 = static_cast<T>(fx - x1);
@@ -232,7 +218,7 @@ template <typename T, bool channel_last = false>
 __global__ void kernel_linear_interpolate_2d_backward(
     const int g_y_inner_size, const T *g_y, const int g_x_inner_size, T *g_x,
     int outer_size, const int2 ishape, const int2 istride, const int2 ostride,
-    const float sx, const float sy, const bool half_pixel) {
+    const float sx, const float sy, const bool align_corners) {
 
   NBLA_CUDA_KERNEL_LOOP(index, g_y_inner_size) {
     const auto nd_index = device_flat_to_3d(index, ostride);
@@ -243,13 +229,13 @@ __global__ void kernel_linear_interpolate_2d_backward(
     const auto ih = ishape.x;
     const auto iw = ishape.y;
 
-    const auto fy = get_src_index(sy, oy, half_pixel);
+    const auto fy = get_src_index(sy, oy, align_corners);
     const auto y1 = static_cast<int>(fy);
     const auto y2 = min(y1 + 1, ih - 1);
     const auto ly1 = static_cast<T>(fy - y1);
     const auto ly0 = static_cast<T>(1) - ly1;
 
-    const auto fx = get_src_index(sx, ox, half_pixel);
+    const auto fx = get_src_index(sx, ox, align_corners);
     const auto x1 = static_cast<int>(fx);
     const auto x2 = min(x1 + 1, iw - 1);
     const auto lx1 = static_cast<T>(fx - x1);
@@ -278,7 +264,7 @@ template <typename T, bool channel_last = false>
 __global__ void kernel_linear_interpolate_3d_backward(
     const int g_y_inner_size, const T *g_y, const int g_x_inner_size, T *g_x,
     int outer_size, const int3 ishape, const int3 istride, const int3 ostride,
-    const float sx, const float sy, const float sz, const bool half_pixel) {
+    const float sx, const float sy, const float sz, const bool align_corners) {
 
   NBLA_CUDA_KERNEL_LOOP(index, g_y_inner_size) {
     const auto nd_index = device_flat_to_4d(index, ostride);
@@ -291,19 +277,19 @@ __global__ void kernel_linear_interpolate_3d_backward(
     const auto ih = ishape.y;
     const auto iw = ishape.z;
 
-    const auto fz = get_src_index(sz, oz, half_pixel);
+    const auto fz = get_src_index(sz, oz, align_corners);
     const auto z1 = static_cast<int>(fz);
     const auto z2 = min(z1 + 1, id - 1);
     const auto lz1 = static_cast<T>(fz - z1);
     const auto lz0 = static_cast<T>(1) - lz1;
 
-    const auto fy = get_src_index(sy, oy, half_pixel);
+    const auto fy = get_src_index(sy, oy, align_corners);
     const auto y1 = static_cast<int>(fy);
     const auto y2 = min(y1 + 1, ih - 1);
     const auto ly1 = static_cast<T>(fy - y1);
     const auto ly0 = static_cast<T>(1) - ly1;
 
-    const auto fx = get_src_index(sx, ox, half_pixel);
+    const auto fx = get_src_index(sx, ox, align_corners);
     const auto x1 = static_cast<int>(fx);
     const auto x2 = min(x1 + 1, iw - 1);
     const auto lx1 = static_cast<T>(fx - x1);
@@ -345,7 +331,7 @@ template <typename T, bool channel_last = false>
 __global__ void kernel_nearest_interpolate_1d(
     const int dst_inner_size, T *dst, const int src_inner_size, const T *src,
     int outer_size, const int ishape, const int istride, const int ostride,
-    const float sx, const bool half_pixel, const bool half_pixel_for_nn) {
+    const float sx) {
 
   NBLA_CUDA_KERNEL_LOOP(index, dst_inner_size) {
     const auto nd_index = device_flat_to_2d(index, ostride);
@@ -353,8 +339,7 @@ __global__ void kernel_nearest_interpolate_1d(
     const auto ox = nd_index.x;
 
     const auto iw = ishape;
-    const auto fx = get_src_index_for_nn(sx, ox, half_pixel, half_pixel_for_nn);
-    const auto ix = min(static_cast<int>(fx), iw - 1);
+    const auto ix = min(static_cast<int>(sx * (ox + 0.5f)), iw - 1);
 
     const auto nd_idx_x = make_int2(ix, oc);
     const auto idx_x = device_2d_to_flat(nd_idx_x, istride);
@@ -368,8 +353,7 @@ template <typename T, bool channel_last = false>
 __global__ void kernel_nearest_interpolate_2d(
     const int dst_inner_size, T *dst, const int src_inner_size, const T *src,
     int outer_size, const int2 ishape, const int2 istride, const int2 ostride,
-    const float sx, const float sy, const bool half_pixel,
-    const bool half_pixel_for_nn) {
+    const float sx, const float sy) {
   NBLA_CUDA_KERNEL_LOOP(index, dst_inner_size) {
     const auto nd_index = device_flat_to_3d(index, ostride);
     const auto oc = channel_last ? nd_index.z : 0;
@@ -379,10 +363,8 @@ __global__ void kernel_nearest_interpolate_2d(
     const auto ih = ishape.x;
     const auto iw = ishape.y;
 
-    const auto fy = get_src_index_for_nn(sy, oy, half_pixel, half_pixel_for_nn);
-    const auto fx = get_src_index_for_nn(sx, ox, half_pixel, half_pixel_for_nn);
-    const auto iy = min(static_cast<int>(fy), ih - 1);
-    const auto ix = min(static_cast<int>(fx), iw - 1);
+    const auto iy = min(static_cast<int>(sy * (oy + 0.5f)), ih - 1);
+    const auto ix = min(static_cast<int>(sx * (ox + 0.5f)), iw - 1);
 
     const auto nd_idx_yx = make_int3(iy, ix, oc);
     const auto idx_yx = device_3d_to_flat(nd_idx_yx, istride);
@@ -396,8 +378,7 @@ template <typename T, bool channel_last = false>
 __global__ void kernel_nearest_interpolate_3d(
     const int dst_inner_size, T *dst, const int src_inner_size, const T *src,
     int outer_size, const int3 ishape, const int3 istride, const int3 ostride,
-    const float sx, const float sy, const float sz, const bool half_pixel,
-    const bool half_pixel_for_nn) {
+    const float sx, const float sy, const float sz) {
   NBLA_CUDA_KERNEL_LOOP(index, dst_inner_size) {
     const auto nd_index = device_flat_to_4d(index, ostride);
     const auto oc = channel_last ? nd_index.w : 0;
@@ -409,12 +390,9 @@ __global__ void kernel_nearest_interpolate_3d(
     const auto ih = ishape.y;
     const auto iw = ishape.z;
 
-    const auto fz = get_src_index_for_nn(sz, oz, half_pixel, half_pixel_for_nn);
-    const auto fy = get_src_index_for_nn(sy, oy, half_pixel, half_pixel_for_nn);
-    const auto fx = get_src_index_for_nn(sx, ox, half_pixel, half_pixel_for_nn);
-    const auto iz = min(static_cast<int>(fz), id - 1);
-    const auto iy = min(static_cast<int>(fy), ih - 1);
-    const auto ix = min(static_cast<int>(fx), iw - 1);
+    const auto iz = min(static_cast<int>(sz * (oz + 0.5f)), id - 1);
+    const auto iy = min(static_cast<int>(sy * (oy + 0.5f)), ih - 1);
+    const auto ix = min(static_cast<int>(sx * (ox + 0.5f)), iw - 1);
 
     const auto nd_idx_zyx = make_int4(iz, iy, ix, oc);
     const auto idx_zyx = device_4d_to_flat(nd_idx_zyx, istride);
@@ -428,7 +406,7 @@ template <typename T, bool channel_last = false>
 __global__ void kernel_nearest_interpolate_1d_backward(
     const int g_y_inner_size, const T *g_y, const int g_x_inner_size, T *g_x,
     int outer_size, const int ishape, const int istride, const int ostride,
-    const float sx, const bool half_pixel, const bool half_pixel_for_nn) {
+    const float sx) {
 
   NBLA_CUDA_KERNEL_LOOP(index, g_y_inner_size) {
     const auto nd_index = device_flat_to_2d(index, ostride);
@@ -436,8 +414,7 @@ __global__ void kernel_nearest_interpolate_1d_backward(
     const auto ox = nd_index.x;
 
     const auto iw = ishape;
-    const auto fx = get_src_index_for_nn(sx, ox, half_pixel, half_pixel_for_nn);
-    const auto ix = min(static_cast<int>(fx), iw - 1);
+    const auto ix = min(static_cast<int>(sx * (ox + 0.5f)), iw - 1);
 
     const auto nd_idx_x = make_int2(ix, oc);
     const auto idx_x = device_2d_to_flat(nd_idx_x, istride);
@@ -451,8 +428,7 @@ template <typename T, bool channel_last = false>
 __global__ void kernel_nearest_interpolate_2d_backward(
     const int g_y_inner_size, const T *g_y, const int g_x_inner_size, T *g_x,
     int outer_size, const int2 ishape, const int2 istride, const int2 ostride,
-    const float sx, const float sy, const bool half_pixel,
-    const bool half_pixel_for_nn) {
+    const float sx, const float sy) {
 
   NBLA_CUDA_KERNEL_LOOP(index, g_y_inner_size) {
     const auto nd_index = device_flat_to_3d(index, ostride);
@@ -463,10 +439,8 @@ __global__ void kernel_nearest_interpolate_2d_backward(
     const auto ih = ishape.x;
     const auto iw = ishape.y;
 
-    const auto fy = get_src_index_for_nn(sy, oy, half_pixel, half_pixel_for_nn);
-    const auto fx = get_src_index_for_nn(sx, ox, half_pixel, half_pixel_for_nn);
-    const auto iy = min(static_cast<int>(fy), ih - 1);
-    const auto ix = min(static_cast<int>(fx), iw - 1);
+    const auto iy = min(static_cast<int>(sy * (oy + 0.5f)), ih - 1);
+    const auto ix = min(static_cast<int>(sx * (ox + 0.5f)), iw - 1);
 
     const auto nd_idx_yx = make_int3(iy, ix, oc);
     const auto idx_yx = device_3d_to_flat(nd_idx_yx, istride);
@@ -481,8 +455,7 @@ template <typename T, bool channel_last = false>
 __global__ void kernel_nearest_interpolate_3d_backward(
     const int g_y_inner_size, const T *g_y, const int g_x_inner_size, T *g_x,
     int outer_size, const int3 ishape, const int3 istride, const int3 ostride,
-    const float sx, const float sy, const float sz, const bool half_pixel,
-    const bool half_pixel_for_nn) {
+    const float sx, const float sy, const float sz) {
 
   NBLA_CUDA_KERNEL_LOOP(index, g_y_inner_size) {
     const auto nd_index = device_flat_to_4d(index, ostride);
@@ -495,12 +468,9 @@ __global__ void kernel_nearest_interpolate_3d_backward(
     const auto ih = ishape.y;
     const auto iw = ishape.z;
 
-    const auto fz = get_src_index_for_nn(sz, oz, half_pixel, half_pixel_for_nn);
-    const auto fy = get_src_index_for_nn(sy, oy, half_pixel, half_pixel_for_nn);
-    const auto fx = get_src_index_for_nn(sx, ox, half_pixel, half_pixel_for_nn);
-    const auto iz = min(static_cast<int>(fz), id - 1);
-    const auto iy = min(static_cast<int>(fy), ih - 1);
-    const auto ix = min(static_cast<int>(fx), iw - 1);
+    const auto iz = min(static_cast<int>(sz * (oz + 0.5f)), id - 1);
+    const auto iy = min(static_cast<int>(sy * (oy + 0.5f)), ih - 1);
+    const auto ix = min(static_cast<int>(sx * (ox + 0.5f)), iw - 1);
 
     const auto nd_idx_zyx = make_int4(iz, iy, ix, oc);
     const auto idx_zyx = device_4d_to_flat(nd_idx_zyx, istride);
@@ -541,18 +511,17 @@ void InterpolateCuda<T>::forward_impl(const Variables &inputs,
       auto kernel = this->channel_last_
                         ? kernel_linear_interpolate_1d<Tcu, true>
                         : kernel_linear_interpolate_1d<Tcu, false>;
-      NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(kernel, dst_inner_size, dst,
-                                     src_inner_size, src, outer_size, ishape,
-                                     istride, ostride, sx, this->half_pixel_);
+      NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(
+          kernel, dst_inner_size, dst, src_inner_size, src, outer_size, ishape,
+          istride, ostride, sx, this->align_corners_);
     } else if (this->mode_ == "nearest") {
-      const float sx = compute_scale_for_nn(iw, ow, this->align_corners_,
-                                            this->half_pixel_for_nn_);
+      const float sx = iw / static_cast<float>(ow);
       auto kernel = this->channel_last_
                         ? kernel_nearest_interpolate_1d<Tcu, true>
                         : kernel_nearest_interpolate_1d<Tcu, false>;
-      NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(
-          kernel, dst_inner_size, dst, src_inner_size, src, outer_size, ishape,
-          istride, ostride, sx, this->half_pixel_, this->half_pixel_for_nn_);
+      NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(kernel, dst_inner_size, dst,
+                                     src_inner_size, src, outer_size, ishape,
+                                     istride, ostride, sx);
     }
   }
 
@@ -586,19 +555,16 @@ void InterpolateCuda<T>::forward_impl(const Variables &inputs,
                         : kernel_linear_interpolate_2d<Tcu, false>;
       NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(
           kernel, dst_inner_size, dst, src_inner_size, src, outer_size, ishape,
-          istride, ostride, sx, sy, this->half_pixel_);
+          istride, ostride, sx, sy, this->align_corners_);
     } else if (this->mode_ == "nearest") {
-      const float sx = compute_scale_for_nn(iw, ow, this->align_corners_,
-                                            this->half_pixel_for_nn_);
-      const float sy = compute_scale_for_nn(ih, oh, this->align_corners_,
-                                            this->half_pixel_for_nn_);
+      const float sx = iw / static_cast<float>(ow);
+      const float sy = ih / static_cast<float>(oh);
       auto kernel = this->channel_last_
                         ? kernel_nearest_interpolate_2d<Tcu, true>
                         : kernel_nearest_interpolate_2d<Tcu, false>;
-      NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(
-          kernel, dst_inner_size, dst, src_inner_size, src, outer_size, ishape,
-          istride, ostride, sx, sy, this->half_pixel_,
-          this->half_pixel_for_nn_);
+      NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(kernel, dst_inner_size, dst,
+                                     src_inner_size, src, outer_size, ishape,
+                                     istride, ostride, sx, sy);
     }
   }
 
@@ -641,21 +607,17 @@ void InterpolateCuda<T>::forward_impl(const Variables &inputs,
                         : kernel_linear_interpolate_3d<Tcu, false>;
       NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(
           kernel, dst_inner_size, dst, src_inner_size, src, outer_size, ishape,
-          istride, ostride, sx, sy, sz, this->half_pixel_);
+          istride, ostride, sx, sy, sz, this->align_corners_);
     } else if (this->mode_ == "nearest") {
-      const float sx = compute_scale_for_nn(iw, ow, this->align_corners_,
-                                            this->half_pixel_for_nn_);
-      const float sy = compute_scale_for_nn(ih, oh, this->align_corners_,
-                                            this->half_pixel_for_nn_);
-      const float sz = compute_scale_for_nn(id, od, this->align_corners_,
-                                            this->half_pixel_for_nn_);
+      const float sx = iw / static_cast<float>(ow);
+      const float sy = ih / static_cast<float>(oh);
+      const float sz = id / static_cast<float>(od);
       auto kernel = this->channel_last_
                         ? kernel_nearest_interpolate_3d<Tcu, true>
                         : kernel_nearest_interpolate_3d<Tcu, false>;
-      NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(
-          kernel, dst_inner_size, dst, src_inner_size, src, outer_size, ishape,
-          istride, ostride, sx, sy, sz, this->half_pixel_,
-          this->half_pixel_for_nn_);
+      NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(kernel, dst_inner_size, dst,
+                                     src_inner_size, src, outer_size, ishape,
+                                     istride, ostride, sx, sy, sz);
     }
   }
 }
@@ -696,18 +658,17 @@ void InterpolateCuda<T>::backward_impl(const Variables &inputs,
       auto kernel = this->channel_last_
                         ? kernel_linear_interpolate_1d_backward<Tcu, true>
                         : kernel_linear_interpolate_1d_backward<Tcu, false>;
-      NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(kernel, g_y_inner_size, g_y,
-                                     g_x_inner_size, g_x, outer_size, ishape,
-                                     istride, ostride, sx, this->half_pixel_);
+      NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(
+          kernel, g_y_inner_size, g_y, g_x_inner_size, g_x, outer_size, ishape,
+          istride, ostride, sx, this->align_corners_);
     } else if (this->mode_ == "nearest") {
-      const float sx = compute_scale_for_nn(iw, ow, this->align_corners_,
-                                            this->half_pixel_for_nn_);
+      const float sx = iw / static_cast<float>(ow);
       auto kernel = this->channel_last_
                         ? kernel_nearest_interpolate_1d_backward<Tcu, true>
                         : kernel_nearest_interpolate_1d_backward<Tcu, false>;
-      NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(
-          kernel, g_y_inner_size, g_y, g_x_inner_size, g_x, outer_size, ishape,
-          istride, ostride, sx, this->half_pixel_, this->half_pixel_for_nn_);
+      NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(kernel, g_y_inner_size, g_y,
+                                     g_x_inner_size, g_x, outer_size, ishape,
+                                     istride, ostride, sx);
     }
   }
 
@@ -740,19 +701,16 @@ void InterpolateCuda<T>::backward_impl(const Variables &inputs,
                         : kernel_linear_interpolate_2d_backward<Tcu, false>;
       NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(
           kernel, g_y_inner_size, g_y, g_x_inner_size, g_x, outer_size, ishape,
-          istride, ostride, sx, sy, this->half_pixel_);
+          istride, ostride, sx, sy, this->align_corners_);
     } else if (this->mode_ == "nearest") {
-      const float sx = compute_scale_for_nn(iw, ow, this->align_corners_,
-                                            this->half_pixel_for_nn_);
-      const float sy = compute_scale_for_nn(ih, oh, this->align_corners_,
-                                            this->half_pixel_for_nn_);
+      const float sx = iw / static_cast<float>(ow);
+      const float sy = ih / static_cast<float>(oh);
       auto kernel = this->channel_last_
                         ? kernel_nearest_interpolate_2d_backward<Tcu, true>
                         : kernel_nearest_interpolate_2d_backward<Tcu, false>;
-      NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(
-          kernel, g_y_inner_size, g_y, g_x_inner_size, g_x, outer_size, ishape,
-          istride, ostride, sx, sy, this->half_pixel_,
-          this->half_pixel_for_nn_);
+      NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(kernel, g_y_inner_size, g_y,
+                                     g_x_inner_size, g_x, outer_size, ishape,
+                                     istride, ostride, sx, sy);
     }
   }
 
@@ -795,21 +753,17 @@ void InterpolateCuda<T>::backward_impl(const Variables &inputs,
                         : kernel_linear_interpolate_3d_backward<Tcu, false>;
       NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(
           kernel, g_y_inner_size, g_y, g_x_inner_size, g_x, outer_size, ishape,
-          istride, ostride, sx, sy, sz, this->half_pixel_);
+          istride, ostride, sx, sy, sz, this->align_corners_);
     } else if (this->mode_ == "nearest") {
-      const float sx = compute_scale_for_nn(iw, ow, this->align_corners_,
-                                            this->half_pixel_for_nn_);
-      const float sy = compute_scale_for_nn(ih, oh, this->align_corners_,
-                                            this->half_pixel_for_nn_);
-      const float sz = compute_scale_for_nn(id, od, this->align_corners_,
-                                            this->half_pixel_for_nn_);
+      const float sx = iw / static_cast<float>(ow);
+      const float sy = ih / static_cast<float>(oh);
+      const float sz = id / static_cast<float>(od);
       auto kernel = this->channel_last_
                         ? kernel_nearest_interpolate_3d_backward<Tcu, true>
                         : kernel_nearest_interpolate_3d_backward<Tcu, false>;
-      NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(
-          kernel, g_y_inner_size, g_y, g_x_inner_size, g_x, outer_size, ishape,
-          istride, ostride, sx, sy, sz, this->half_pixel_,
-          this->half_pixel_for_nn_);
+      NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(kernel, g_y_inner_size, g_y,
+                                     g_x_inner_size, g_x, outer_size, ishape,
+                                     istride, ostride, sx, sy, sz);
     }
   }
 }
